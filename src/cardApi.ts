@@ -3,7 +3,7 @@ import type { CardResult, CardVariant, Condition } from './types'
 
 const API_URL = 'https://tcgtracking.com/tcgapi/v1'
 
-type CatalogCard = { id: string; n: string; no: string; sn: string; sc: string; img?: string }
+type CatalogCard = { id: string; n: string; no: string; sn: string; sc: string; img?: string; t?: 'card' | 'sealed' }
 type CatalogPayload = { source: string; generatedAt: string; cards: CatalogCard[] }
 type ProductPayload = {
   product?: { market_price?: string | null }
@@ -58,7 +58,7 @@ function score(card: CatalogCard, term: string, searchTokens: string[]) {
 }
 
 function mapCard(card: CatalogCard, details?: { marketPrice?: number; variants: CardVariant[] }): CardResult {
-  return { id: card.id, name: card.n, number: card.no, setName: card.sn, setCode: card.sc, image: card.img, marketPrice: details?.marketPrice, variants: details?.variants }
+  return { id: card.id, name: card.n, number: card.no, setName: card.sn, setCode: card.sc, image: card.img, marketPrice: details?.marketPrice, variants: details?.variants, productType: card.t ?? 'card' }
 }
 
 async function getProductDetails(productId: string, signal?: AbortSignal) {

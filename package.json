@@ -13,9 +13,9 @@
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "lucide-react": "latest",
-    "vite": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@eslint/js": "latest",
@@ -31,6 +31,7 @@
     "jsdom": "latest",
     "typescript": "latest",
     "typescript-eslint": "latest",
+    "vite-plugin-pwa": "^1.3.0",
     "vitest": "latest"
   }
 }

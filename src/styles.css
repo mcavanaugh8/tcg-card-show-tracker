@@ -1,6 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
-
-:root { font-family: 'DM Sans', sans-serif; color: #18342e; background: #f5f4ee; font-synthesis: none; --ink: #15362e; --muted: #75827e; --line: #dedfd7; --green: #0f6b55; --lime: #d7f15c; }
+:root { font-family: 'Avenir Next', 'Segoe UI', system-ui, sans-serif; color: #18342e; background: #f5f4ee; font-synthesis: none; --ink: #15362e; --muted: #75827e; --line: #dedfd7; --green: #0f6b55; --lime: #d7f15c; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(circle at 75% -20%, #e5eddb 0, transparent 31rem), #f5f4ee; }
 button, input, select { font: inherit; }

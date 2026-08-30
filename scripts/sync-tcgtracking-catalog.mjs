@@ -18,7 +18,10 @@ const catalog = []
 async function worker() {
   while (cursor < sets.length) {
     const set = sets[cursor++]
-    const data = await getJson(`${API}/3/sets/${set.id}/cards`)
+    const [data, sealedData] = await Promise.all([
+      getJson(`${API}/3/sets/${set.id}/cards`),
+      getJson(`${API}/3/sets/${set.id}/sealed`),
+    ])
     for (const card of data.products ?? []) {
       if (!card.name || !card.number) continue
       catalog.push({
@@ -28,6 +31,19 @@ async function worker() {
         sn: data.set_name ?? set.name,
         sc: data.set_abbr ?? set.abbreviation ?? '',
         img: card.image_url ?? undefined,
+        t: 'card',
+      })
+    }
+    for (const product of sealedData.products ?? []) {
+      if (!product.name) continue
+      catalog.push({
+        id: String(product.id),
+        n: product.name,
+        no: '',
+        sn: sealedData.set_name ?? set.name,
+        sc: sealedData.set_abbr ?? set.abbreviation ?? '',
+        img: product.image_url ?? undefined,
+        t: 'sealed',
       })
     }
     process.stdout.write(`\rIndexed ${cursor}/${sets.length} sets`)
@@ -39,4 +55,5 @@ catalog.sort((a, b) => a.n.localeCompare(b.n) || a.sn.localeCompare(b.sn) || a.n
 
 await mkdir(new URL('../public/', import.meta.url), { recursive: true })
 await writeFile(OUT, JSON.stringify({ source: 'TCGTracking', generatedAt: new Date().toISOString(), cards: catalog }))
-console.log(`\nWrote ${catalog.length.toLocaleString()} cards to ${OUT.pathname}`)
+const sealedCount = catalog.filter((product) => product.t === 'sealed').length
+console.log(`\nWrote ${(catalog.length - sealedCount).toLocaleString()} cards and ${sealedCount.toLocaleString()} sealed products to ${OUT.pathname}`)

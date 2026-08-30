@@ -16,6 +16,7 @@ export interface CardResult {
   image?: string
   marketPrice?: number
   variants?: CardVariant[]
+  productType?: 'card' | 'sealed'
 }
 
 export interface InventoryLot extends CardResult {
@@ -48,6 +49,7 @@ export interface Transaction {
   gradingCompany?: string
   grade?: string
   certificationNumber?: string
+  productType?: 'card' | 'sealed'
   quantity: number
   unitPrice: number
   unitCost: number
@@ -67,6 +69,7 @@ export interface TradeLine {
   gradingCompany?: string
   grade?: string
   certificationNumber?: string
+  productType?: 'card' | 'sealed'
   quantity: number
   unitTradeValue: number
   unitCost: number
