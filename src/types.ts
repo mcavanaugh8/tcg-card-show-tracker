@@ -96,3 +96,13 @@ export interface LedgerState {
     showPotentialProfit: boolean
   }
 }
+
+export interface ShowLedger extends LedgerState {
+  id: string
+  createdAt: string
+}
+
+export interface WorkspaceState {
+  activeShowId: string
+  shows: ShowLedger[]
+}

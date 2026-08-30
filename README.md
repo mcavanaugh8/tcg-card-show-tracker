@@ -7,6 +7,8 @@ A fast, local-first inventory and profit tracker for trading card show vendors.
 - Search TCGTracking's Pokémon catalog for singles and sealed products by name, collector number, or both
 - Buy, sell, inventory, and trade sealed products such as booster boxes, packs, Elite Trainer Boxes, and bundles
 - Record purchases as separate inventory lots with condition and cost basis
+- Create and switch between multiple saved shows, with isolated inventory, activity, and totals
+- Optionally carry current inventory and cost basis into a newly created show
 - Keep Normal, Holofoil, Reverse Holofoil, and other print variants as distinct lots
 - Use condition-specific TCGTracking SKU market prices when available
 - Track graded slabs by grader, grade, certification number, notes, and manual market value

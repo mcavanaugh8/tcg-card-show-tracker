@@ -7,7 +7,7 @@ import {
 import { hydrateCard, localSearch, searchCards } from './cardApi'
 import { exportLedgerCsv } from './exportCsv'
 import { clearSavedState, hasLocalState, loadBackupState, loadState, saveState } from './storage'
-import type { CardFormat, CardResult, CardVariant, Condition, InventoryLot, LedgerState, TradeEvent, TradeLine, Transaction } from './types'
+import type { CardFormat, CardResult, CardVariant, Condition, InventoryLot, LedgerState, ShowLedger, TradeEvent, TradeLine, Transaction, WorkspaceState } from './types'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const conditions: Condition[] = ['NM', 'LP', 'MP', 'HP', 'DMG']
@@ -23,7 +23,7 @@ type Stats = { units: number; cost: number; market: number; potential: number; r
 
 function App() {
   const [hadLocalState] = useState(hasLocalState)
-  const [state, setState] = useState<LedgerState>(loadState)
+  const [workspace, setWorkspace] = useState<WorkspaceState>(loadState)
   const [storageReady, setStorageReady] = useState(hadLocalState)
   const [tab, setTab] = useState<'overview' | 'inventory' | 'activity'>('overview')
   const [flow, setFlow] = useState<Flow | null>(null)
@@ -40,7 +40,7 @@ function App() {
     if (hadLocalState) return
     let active = true
     void loadBackupState().then((backup) => {
-      if (active && backup) setState(backup)
+      if (active && backup) setWorkspace(backup)
     }).finally(() => {
       if (active) setStorageReady(true)
     })
@@ -48,8 +48,19 @@ function App() {
   }, [hadLocalState])
 
   useEffect(() => {
-    if (storageReady) saveState(state)
-  }, [state, storageReady])
+    if (storageReady) saveState(workspace)
+  }, [workspace, storageReady])
+
+  const state = workspace.shows.find((show) => show.id === workspace.activeShowId) ?? workspace.shows[0]
+
+  function setState(next: LedgerState | ((current: ShowLedger) => LedgerState)) {
+    setWorkspace((current) => ({
+      ...current,
+      shows: current.shows.map((show) => show.id === current.activeShowId
+        ? { ...(typeof next === 'function' ? next(show) : next), id: show.id, createdAt: show.createdAt }
+        : show),
+    }))
+  }
 
   useEffect(() => {
     if (!undoEntry) return
@@ -153,22 +164,48 @@ function App() {
     setState((current) => ({ ...current, showName, showDate }))
   }
 
+  function createShow(showName: string, showDate: string, carryInventory: boolean) {
+    const id = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+    const show: ShowLedger = {
+      id,
+      createdAt,
+      showName: showName.trim() || 'Untitled Show',
+      showDate,
+      lots: carryInventory ? state.lots.map((lot) => ({ ...lot })) : [],
+      transactions: [],
+      trades: [],
+      preferences: state.preferences,
+    }
+    setWorkspace((current) => ({ activeShowId: id, shows: [show, ...current.shows] }))
+    setUndoEntry(null)
+    setTab('overview')
+  }
+
+  function switchShow(id: string) {
+    if (!workspace.shows.some((show) => show.id === id)) return
+    setWorkspace((current) => ({ ...current, activeShowId: id }))
+    setUndoEntry(null)
+    setInventoryFilter('')
+    setSettingsOpen(false)
+    setTab('overview')
+  }
+
   function toggleProfitVisibility(field: 'showRealizedProfit' | 'showPotentialProfit') {
     const preferences = state.preferences ?? { showRealizedProfit: true, showPotentialProfit: true }
     setState({ ...state, preferences: { ...preferences, [field]: !preferences[field] } })
   }
 
-  async function resetData(mode: 'new-show' | 'activity' | 'inventory' | 'all') {
-    setUndoEntry({ snapshot: state, label: mode === 'new-show' ? 'Started a new show' : mode === 'activity' ? 'Cleared activity' : mode === 'inventory' ? 'Cleared inventory' : 'Cleared all data' })
-    if (mode === 'new-show') {
-      setState((current) => ({ ...current, showName: 'New Show', showDate: new Date().toISOString().slice(0, 10), transactions: [], trades: [] }))
-    } else if (mode === 'activity') {
+  async function resetData(mode: 'activity' | 'inventory' | 'all') {
+    setUndoEntry({ snapshot: state, label: mode === 'activity' ? 'Cleared activity' : mode === 'inventory' ? 'Cleared inventory' : 'Cleared all data' })
+    if (mode === 'activity') {
       setState((current) => ({ ...current, transactions: [], trades: [] }))
     } else if (mode === 'inventory') {
       setState((current) => ({ ...current, lots: [] }))
     } else {
       await clearSavedState()
-      setState({ showName: 'New Show', showDate: new Date().toISOString().slice(0, 10), lots: [], transactions: [], trades: [] })
+      const id = crypto.randomUUID()
+      setWorkspace({ activeShowId: id, shows: [{ id, createdAt: new Date().toISOString(), showName: 'New Show', showDate: new Date().toISOString().slice(0, 10), lots: [], transactions: [], trades: [] }] })
     }
   }
 
@@ -179,11 +216,11 @@ function App() {
           <span className="brand-mark"><BarChart3 size={19} /></span>
           <span><strong>Tabletop</strong> Ledger</span>
         </button>
-        <div className="show-pill">
+        <button className="show-pill" onClick={() => setSettingsOpen(true)} aria-label="Switch active show">
           <span className="live-dot" />
           <div><span>Active show</span><strong>{state.showName}</strong></div>
           <ChevronDown size={16} />
-        </div>
+        </button>
         <button className="global-search-trigger" onClick={() => setGlobalSearchOpen(true)}><Search /><span>Find any card</span><kbd>/</kbd></button>
         <nav>
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Overview</button>
@@ -209,7 +246,7 @@ function App() {
       {flow && <TransactionModal flow={flow} lots={state.lots} initialCard={buyCard} initialLot={saleLot} recentCards={recentCards} onClose={closeTransaction} onBuy={recordBuy} onSell={recordSale} />}
       {editingLot && <EditLotModal lot={editingLot} onClose={() => setEditingLot(null)} onSave={updateLotPricing} />}
       {tradeOpen && <TradeModal lots={state.lots} onClose={() => setTradeOpen(false)} onSave={recordTrade} />}
-      {settingsOpen && <SettingsModal state={state} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
+      {settingsOpen && <SettingsModal state={state} shows={workspace.shows} activeShowId={workspace.activeShowId} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onCreateShow={createShow} onSwitchShow={switchShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
       {globalSearchOpen && <GlobalSearchModal lots={state.lots} onClose={() => setGlobalSearchOpen(false)} onBuy={(card) => { setGlobalSearchOpen(false); startBuy(card) }} onSell={(lot) => { setGlobalSearchOpen(false); startSale(lot) }} />}
       {undoEntry && <div className="undo-toast"><span><Check /> {undoEntry.label}</span><button onClick={() => { setState(undoEntry.snapshot); setUndoEntry(null) }}><Undo2 /> Undo</button></div>}
     </div>
@@ -310,11 +347,14 @@ function EditLotModal({ lot, onClose, onSave }: { lot: InventoryLot; onClose: ()
   </div></div>
 }
 
-function SettingsModal({ state, onClose, onUpdateShow, onReset, onExport }: { state: LedgerState; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onReset: (mode: 'new-show' | 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
+function SettingsModal({ state, shows, activeShowId, onClose, onUpdateShow, onCreateShow, onSwitchShow, onReset, onExport }: { state: LedgerState; shows: ShowLedger[]; activeShowId: string; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onCreateShow: (name: string, date: string, carryInventory: boolean) => void; onSwitchShow: (id: string) => void; onReset: (mode: 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
   const [showName, setShowName] = useState(state.showName)
   const [showDate, setShowDate] = useState(state.showDate)
+  const [newShowName, setNewShowName] = useState('')
+  const [newShowDate, setNewShowDate] = useState(new Date().toISOString().slice(0, 10))
+  const [carryInventory, setCarryInventory] = useState(true)
 
-  async function confirmReset(mode: 'new-show' | 'activity' | 'inventory' | 'all', message: string) {
+  async function confirmReset(mode: 'activity' | 'inventory' | 'all', message: string) {
     if (!window.confirm(message)) return
     await onReset(mode)
   }
@@ -322,6 +362,13 @@ function SettingsModal({ state, onClose, onUpdateShow, onReset, onExport }: { st
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><div className="modal settings-modal" role="dialog" aria-modal="true">
     <div className="modal-head"><div><p className="eyebrow">SHOW & DATA</p><h2>Settings</h2></div><button onClick={onClose}><X /></button></div>
     <div className="settings-body">
+      <section className="settings-section">
+        <div className="settings-title"><div><h3>Your shows</h3><p>Switch shows without losing their inventory, sales, trades, or totals.</p></div></div>
+        <div className="show-list">{shows.map((show) => <button key={show.id} className={show.id === activeShowId ? 'active' : ''} onClick={() => onSwitchShow(show.id)}><span><strong>{show.showName}</strong><small>{new Date(`${show.showDate}T12:00:00`).toLocaleDateString()} · {show.lots.reduce((sum, lot) => sum + lot.quantity, 0)} items · {show.transactions.length + (show.trades?.length ?? 0)} deals</small></span>{show.id === activeShowId ? <Check /> : <ChevronDown />}</button>)}</div>
+        <div className="new-show-fields"><label>New show name<input value={newShowName} onChange={(event) => setNewShowName(event.target.value)} placeholder="e.g. Collect-A-Con Orlando" /></label><label>Date<input type="date" value={newShowDate} onChange={(event) => setNewShowDate(event.target.value)} /></label></div>
+        <label className="carry-inventory"><input type="checkbox" checked={carryInventory} onChange={(event) => setCarryInventory(event.target.checked)} /><span><strong>Carry current inventory into the new show</strong><small>Starts with the same items and cost basis, but no sales or trade activity.</small></span></label>
+        <button className="settings-primary" disabled={!newShowName.trim() || !newShowDate} onClick={() => onCreateShow(newShowName, newShowDate, carryInventory)}><Plus /> Create and open show</button>
+      </section>
       <section className="settings-section">
         <div className="settings-title"><div><h3>Show details</h3><p>Used to label your dashboard and exports.</p></div></div>
         <div className="settings-fields"><label>Show name<input value={showName} onChange={(event) => setShowName(event.target.value)} /></label><label>Date<input type="date" value={showDate} onChange={(event) => setShowDate(event.target.value)} /></label></div>
@@ -338,7 +385,6 @@ function SettingsModal({ state, onClose, onUpdateShow, onReset, onExport }: { st
       <section className="settings-section danger-zone">
         <div className="settings-title"><span className="settings-symbol"><RotateCcw /></span><div><h3>Reset data</h3><p>Choose exactly what you want to clear.</p></div></div>
         <div className="reset-grid">
-          <button onClick={() => confirmReset('new-show', 'Start a new show?\n\nYour current inventory will carry over, but all activity and show totals will be cleared.')}><strong>Start new show</strong><small>Keep inventory, clear activity</small></button>
           <button onClick={() => confirmReset('activity', 'Clear all buy and sale activity?\n\nYour inventory will stay unchanged.')}><strong>Clear activity</strong><small>Keep current inventory</small></button>
           <button onClick={() => confirmReset('inventory', 'Clear the entire inventory?\n\nTransaction history and realized profit will stay unchanged.')}><strong>Clear inventory</strong><small>Keep activity and profit</small></button>
           <button className="reset-all" onClick={() => confirmReset('all', 'Clear everything?\n\nThis permanently removes all inventory, activity, and both saved copies on this device.')}><strong>Clear everything</strong><small>Empty inventory and activity</small></button>

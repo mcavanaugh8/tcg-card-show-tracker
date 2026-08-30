@@ -1,9 +1,13 @@
 import { initialState } from './data'
-import type { LedgerState } from './types'
+import type { LedgerState, ShowLedger, WorkspaceState } from './types'
 
 const KEY = 'tabletop-ledger-v1'
 const DB_NAME = 'tabletop-ledger-backup'
 const STORE_NAME = 'ledger'
+
+function showId() {
+  return globalThis.crypto?.randomUUID?.() ?? `show-${Date.now()}`
+}
 
 function migrateTradeCostBasis(state: LedgerState): LedgerState {
   if (!state.trades?.length) return state
@@ -37,6 +41,21 @@ function migrateTradeCostBasis(state: LedgerState): LedgerState {
   }
 }
 
+function migrateWorkspace(value: LedgerState | WorkspaceState): WorkspaceState {
+  if ('shows' in value && Array.isArray(value.shows)) {
+    const shows = value.shows.map((show) => ({ ...migrateTradeCostBasis(show), id: show.id, createdAt: show.createdAt ?? new Date().toISOString() }))
+    if (shows.length) return { activeShowId: shows.some((show) => show.id === value.activeShowId) ? value.activeShowId : shows[0].id, shows }
+  }
+  const ledger = migrateTradeCostBasis(value as LedgerState)
+  const show: ShowLedger = { ...ledger, id: showId(), createdAt: new Date().toISOString() }
+  return { activeShowId: show.id, shows: [show] }
+}
+
+function initialWorkspace(): WorkspaceState {
+  const show: ShowLedger = { ...initialState, id: showId(), createdAt: new Date().toISOString() }
+  return { activeShowId: show.id, shows: [show] }
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1)
@@ -46,7 +65,7 @@ function openDatabase(): Promise<IDBDatabase> {
   })
 }
 
-async function writeBackup(state: LedgerState) {
+async function writeBackup(state: WorkspaceState) {
   const database = await openDatabase()
   await new Promise<void>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, 'readwrite')
@@ -68,21 +87,21 @@ export function hasLocalState() {
   }
 }
 
-export function loadState(): LedgerState {
+export function loadState(): WorkspaceState {
   try {
     const saved = localStorage.getItem(KEY)
-    return saved ? migrateTradeCostBasis(JSON.parse(saved) as LedgerState) : initialState
+    return saved ? migrateWorkspace(JSON.parse(saved) as LedgerState | WorkspaceState) : initialWorkspace()
   } catch {
-    return initialState
+    return initialWorkspace()
   }
 }
 
-export async function loadBackupState(): Promise<LedgerState | null> {
+export async function loadBackupState(): Promise<WorkspaceState | null> {
   try {
     const database = await openDatabase()
-    const result = await new Promise<LedgerState | null>((resolve, reject) => {
+    const result = await new Promise<WorkspaceState | null>((resolve, reject) => {
       const request = database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(KEY)
-      request.onsuccess = () => resolve(request.result ? migrateTradeCostBasis(request.result as LedgerState) : null)
+      request.onsuccess = () => resolve(request.result ? migrateWorkspace(request.result as LedgerState | WorkspaceState) : null)
       request.onerror = () => reject(request.error)
     })
     database.close()
@@ -92,7 +111,7 @@ export async function loadBackupState(): Promise<LedgerState | null> {
   }
 }
 
-export function saveState(state: LedgerState) {
+export function saveState(state: WorkspaceState) {
   try { localStorage.setItem(KEY, JSON.stringify(state)) } catch { /* IndexedDB remains available. */ }
   void writeBackup(state).catch(() => undefined)
 }
