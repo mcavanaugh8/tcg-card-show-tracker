@@ -1,5 +1,5 @@
 import { sampleCards } from './data'
-import type { CardResult } from './types'
+import type { CardResult, CardVariant, Condition } from './types'
 
 const API_URL = 'https://tcgtracking.com/tcgapi/v1'
 
@@ -8,10 +8,25 @@ type CatalogPayload = { source: string; generatedAt: string; cards: CatalogCard[
 type ProductPayload = {
   product?: { market_price?: string | null }
   prices?: { tcgplayer?: Array<{ market_price?: string | null; sub_type_name?: string }> }
+  sku_dimensions?: { variants?: Array<{ id: number; name: string }> }
+  skus?: Array<{
+    condition_name?: string
+    variant_name?: string
+    variant_id?: number
+    language_name?: string
+    market_price?: string | null
+  }>
 }
 
 let catalogPromise: Promise<CatalogCard[]> | undefined
-const priceCache = new Map<string, number | undefined>()
+const detailsCache = new Map<string, Promise<{ marketPrice?: number; variants: CardVariant[] }>>()
+const conditionCodes: Record<string, Condition> = {
+  'Near Mint': 'NM',
+  'Lightly Played': 'LP',
+  'Moderately Played': 'MP',
+  'Heavily Played': 'HP',
+  Damaged: 'DMG',
+}
 
 const normalize = (value: string) => value.toLowerCase().replace(/^#?0+/, '')
 const tokens = (value: string) => value.toLowerCase().trim().split(/\s+/).filter(Boolean)
@@ -42,27 +57,46 @@ function score(card: CatalogCard, term: string, searchTokens: string[]) {
   return value
 }
 
-function mapCard(card: CatalogCard, marketPrice?: number): CardResult {
-  return { id: card.id, name: card.n, number: card.no, setName: card.sn, setCode: card.sc, image: card.img, marketPrice }
+function mapCard(card: CatalogCard, details?: { marketPrice?: number; variants: CardVariant[] }): CardResult {
+  return { id: card.id, name: card.n, number: card.no, setName: card.sn, setCode: card.sc, image: card.img, marketPrice: details?.marketPrice, variants: details?.variants }
 }
 
-async function getMarketPrice(productId: string, signal?: AbortSignal) {
-  if (priceCache.has(productId)) return priceCache.get(productId)
-  try {
+async function getProductDetails(productId: string, signal?: AbortSignal) {
+  if (!detailsCache.has(productId)) detailsCache.set(productId, (async () => {
     const response = await fetch(`${API_URL}/products/${productId}`, { signal })
-    if (!response.ok) return undefined
+    if (!response.ok) return { marketPrice: undefined, variants: [] }
     const payload = (await response.json()) as ProductPayload
-    const variants = payload.prices?.tcgplayer ?? []
-    const preferred = variants.find((price) => /normal|holofoil/i.test(price.sub_type_name ?? '') && price.market_price)
-      ?? variants.find((price) => price.market_price)
+    const prices = payload.prices?.tcgplayer ?? []
+    const preferred = prices.find((price) => /normal|holofoil/i.test(price.sub_type_name ?? '') && price.market_price)
+      ?? prices.find((price) => price.market_price)
     const raw = preferred?.market_price ?? payload.product?.market_price
     const price = raw == null ? undefined : Number(raw)
-    const validPrice = Number.isFinite(price) ? price : undefined
-    priceCache.set(productId, validPrice)
-    return validPrice
+    const variants = (payload.sku_dimensions?.variants ?? []).map((variant) => {
+      const marketPrices: Partial<Record<Condition, number>> = {}
+      for (const sku of payload.skus ?? []) {
+        if (sku.variant_id !== variant.id || sku.language_name !== 'English' || !sku.market_price) continue
+        const condition = conditionCodes[sku.condition_name ?? '']
+        const marketPrice = Number(sku.market_price)
+        if (condition && Number.isFinite(marketPrice)) marketPrices[condition] = marketPrice
+      }
+      return { id: variant.id, name: variant.name, marketPrices }
+    })
+    return { marketPrice: Number.isFinite(price) ? price : undefined, variants }
+  })().catch((error) => {
+    detailsCache.delete(productId)
+    throw error
+  }))
+  return detailsCache.get(productId)!
+}
+
+export async function hydrateCard(card: CardResult, signal?: AbortSignal): Promise<CardResult> {
+  if (card.variants?.length) return card
+  try {
+    const details = await getProductDetails(card.id, signal)
+    return { ...card, marketPrice: details.marketPrice ?? card.marketPrice, variants: details.variants }
   } catch (error) {
     if ((error as Error).name === 'AbortError') throw error
-    return undefined
+    return card
   }
 }
 
@@ -90,7 +124,11 @@ export async function searchCards(term: string, signal?: AbortSignal): Promise<C
     .slice(0, 24)
 
   return Promise.all(matches.map(async ({ card }, index) => {
-    const marketPrice = index < 8 ? await getMarketPrice(card.id, signal) : undefined
-    return mapCard(card, marketPrice)
+    let details: { marketPrice?: number; variants: CardVariant[] } | undefined
+    if (index < 8) {
+      try { details = await getProductDetails(card.id, signal) }
+      catch (error) { if ((error as Error).name === 'AbortError') throw error }
+    }
+    return mapCard(card, details)
   }))
 }

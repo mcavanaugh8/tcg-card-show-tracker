@@ -6,9 +6,15 @@ A fast, local-first inventory and profit tracker for trading card show vendors.
 
 - Search TCGTracking's Pokémon catalog by card name, collector number, or both
 - Record purchases as separate inventory lots with condition and cost basis
+- Keep Normal, Holofoil, Reverse Holofoil, and other print variants as distinct lots
+- Use condition-specific TCGTracking SKU market prices when available
+- Track graded slabs by grader, grade, certification number, notes, and manual market value
+- Record multi-card trades with cards and cash on either side, negotiated values, and realized profit
 - Record sales against the exact lot they came from
 - Track realized profit, revenue, cash spent, inventory value, and potential spread
 - Save show data in the browser automatically
+- Keep a second device-local IndexedDB backup for recovery
+- Export inventory and transaction history together as CSV
 - Keep a complete activity ledger for the show
 
 The bundled search index is generated from the public [TCGTracking Open TCG API](https://tcgtracking.com/tcgapi/). Current market prices are loaded from TCGTracking for the strongest results. A small offline fallback keeps the core workflow usable if pricing or catalog loading fails. Market prices are hints only and can be overridden on every deal.
