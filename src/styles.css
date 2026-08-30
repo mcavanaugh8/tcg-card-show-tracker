@@ -13,6 +13,10 @@ button { cursor: pointer; }
 .show-pill div { display: grid; line-height: 1.25; }
 .show-pill span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
 .show-pill strong { font-size: 13px; color: var(--ink); }
+.global-search-trigger { height: 38px; min-width: 155px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: white; color: var(--muted); padding: 0 9px; font-size: 11px; }
+.global-search-trigger svg { width: 15px; }
+.global-search-trigger span { flex: 1; text-align: left; }
+.global-search-trigger kbd, .command-empty kbd { min-width: 21px; height: 21px; display: inline-grid; place-items: center; border: 1px solid #d9dcd4; border-bottom-width: 2px; border-radius: 5px; background: #f5f6f1; color: #65736f; font: 700 10px 'DM Sans'; }
 .live-dot { width: 8px; height: 8px; border-radius: 50%; background: #49b477; box-shadow: 0 0 0 4px #dceddf; }
 .topbar nav { margin-left: auto; display: flex; align-self: stretch; gap: 6px; }
 .topbar nav button { background: none; border: 0; padding: 0 14px; color: #66736f; font-weight: 600; font-size: 14px; position: relative; }
@@ -38,10 +42,16 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
 .stat-card.profit { background: var(--ink); color: white; border-color: var(--ink); }
 .stat-top { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 13px; font-weight: 600; }
 .profit .stat-top { color: #b8cbc5; }
+.stat-icons { display: flex; align-items: center; gap: 5px; }
 .stat-top i { display: grid; place-items: center; width: 31px; height: 31px; border-radius: 9px; background: #f0f2ec; color: var(--green); }
+.stat-icons button { width: 31px; height: 31px; display: grid; place-items: center; border: 0; border-radius: 9px; background: #f0f2ec; color: #71807b; padding: 0; }
+.stat-icons button:hover { background: #e6ebe3; color: var(--green); }
 .profit .stat-top i { background: #285046; color: var(--lime); }
+.profit .stat-icons button { background: #285046; color: #b9ccc6; }
+.profit .stat-icons button:hover { background: #345e53; color: var(--lime); }
 .stat-top svg { width: 16px; }
 .stat-card > strong { font: 800 29px 'Manrope'; letter-spacing: -.03em; align-self: end; }
+.stat-card.concealed > strong { letter-spacing: .08em; }
 .stat-card > small { color: var(--muted); margin-top: 3px; }
 .profit > small { color: #9fb8b1; }
 .stat-card.potential { background: #f1f5dc; border-color: #d8e2aa; }
@@ -157,6 +167,9 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
 .quantity-input input::-webkit-inner-spin-button { display: none; }
 .price-label { grid-column: 1 / -1; }
 .price-hint { color: var(--muted); font-size: 10px; font-weight: 500; }
+.price-presets { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.price-presets button { height: 28px; border: 1px solid #d6dad1; border-radius: 7px; background: #f6f7f2; color: #52635e; padding: 0 8px; font-size: 10px; font-weight: 800; }
+.price-presets button:hover { border-color: #8eaa9e; color: var(--green); }
 .money-input { display: flex; align-items: center; padding: 0 13px; gap: 6px; }
 .money-input span { color: var(--muted); }
 .money-input input { border: 0; outline: 0; min-width: 0; flex: 1; font: 700 20px 'Manrope'; color: var(--ink); }
@@ -205,6 +218,36 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
 .reset-grid button small { color: var(--muted); font-size: 10px; margin-top: 3px; }
 .reset-grid .reset-all { border-color: #e2bbb5; color: #a43e35; background: #fff8f6; }
 .reset-grid .reset-all:hover { border-color: #d59087; background: #fff1ee; }
+.command-backdrop { align-items: start; padding-top: min(12vh, 110px); }
+.command-modal { width: min(680px, 100%); max-height: min(720px, 80vh); }
+.command-input { height: 62px; display: flex; align-items: center; gap: 11px; padding: 0 18px; border-bottom: 1px solid var(--line); }
+.command-input > svg { width: 20px; color: var(--green); }
+.command-input input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; color: var(--ink); }
+.command-input button { width: 30px; height: 30px; display: grid; place-items: center; border: 0; background: none; color: var(--muted); }
+.command-input button svg { width: 17px; }
+.command-empty { min-height: 220px; display: grid; grid-template-columns: 24px auto 24px auto 24px auto; align-content: center; justify-content: center; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+.command-empty p { grid-column: 1 / -1; text-align: center; margin: 14px 0 0; }
+.command-section { padding: 12px 16px; border-bottom: 1px solid #e7e8e2; }
+.command-section > p, .recent-cards > p { margin: 0 0 7px; color: #829078; font: 800 9px 'Manrope'; letter-spacing: .12em; }
+.command-row { min-height: 56px; display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 10px; padding: 6px 7px; border-radius: 9px; }
+.command-row:hover { background: #f3f5ef; }
+.command-row .card-thumb { width: 34px; height: 44px; }
+.command-row > span { display: grid; min-width: 0; }
+.command-row strong { font-size: 12px; }
+.command-row small { color: var(--muted); font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.command-row > button { height: 32px; display: flex; align-items: center; gap: 5px; border: 1px solid #d5d9d0; border-radius: 8px; background: white; color: var(--ink); padding: 0 10px; font-size: 10px; font-weight: 800; }
+.command-row > button svg { width: 13px; }
+.recent-cards { padding: 14px 0 4px; }
+.recent-cards > button { width: 100%; min-height: 55px; display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid #e8e9e3; background: transparent; text-align: left; color: var(--ink); }
+.recent-cards .card-thumb { width: 32px; height: 43px; }
+.recent-cards span { display: grid; }
+.recent-cards strong { font-size: 12px; }
+.recent-cards small { color: var(--muted); font-size: 10px; }
+.undo-toast { position: fixed; z-index: 80; left: 50%; bottom: 24px; transform: translateX(-50%); min-width: 330px; min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-radius: 12px; background: #142f28; color: white; padding: 8px 10px 8px 15px; box-shadow: 0 15px 45px #07191466; }
+.undo-toast > span { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; }
+.undo-toast > span svg { width: 16px; color: var(--lime); }
+.undo-toast button { height: 34px; display: flex; align-items: center; gap: 5px; border: 0; border-radius: 8px; background: var(--lime); color: #283610; padding: 0 11px; font-size: 11px; font-weight: 800; }
+.undo-toast button svg { width: 14px; }
 .trade-modal { width: min(1000px, 100%); }
 .trade-body { padding: 22px 26px 28px; }
 .trade-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
@@ -253,6 +296,7 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
 
 @media (max-width: 900px) {
   .show-pill { display: none; }
+  .global-search-trigger { margin-left: auto; }
   .stat-grid { grid-template-columns: 1fr 1fr; }
   .content-grid { grid-template-columns: 1fr; }
   .table-head, .table-row { grid-template-columns: minmax(220px, 2fr) .5fr .4fr .65fr auto; }
@@ -261,6 +305,8 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
 @media (max-width: 640px) {
   .topbar { height: 64px; padding: 0 16px; }
   .topbar nav, .icon-button { display: none; }
+  .global-search-trigger { min-width: 38px; width: 38px; padding: 0; justify-content: center; margin-left: auto; }
+  .global-search-trigger span, .global-search-trigger kbd { display: none; }
   .mobile-menu { display: grid; margin-left: auto; }
   main { padding: 34px 16px 100px; }
   .hero-row, .page-title { margin-bottom: 25px; }
@@ -296,4 +342,5 @@ h1 { font-size: clamp(34px, 4vw, 54px); line-height: 1.02; letter-spacing: -.045
   .settings-fields, .reset-grid { grid-template-columns: 1fr; }
   .trade-columns { grid-template-columns: 1fr; }
   .trade-body { padding-left: 14px; padding-right: 14px; }
+  .undo-toast { min-width: 0; left: 12px; right: 12px; bottom: 76px; transform: none; }
 }

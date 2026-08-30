@@ -10,6 +10,7 @@ A fast, local-first inventory and profit tracker for trading card show vendors.
 - Use condition-specific TCGTracking SKU market prices when available
 - Track graded slabs by grader, grade, certification number, notes, and manual market value
 - Record multi-card trades with cards and cash on either side, negotiated values, and realized profit
+- Use global search, recent cards, market-percentage price presets, keyboard shortcuts, and one-click undo for fast show-floor entry
 - Record sales against the exact lot they came from
 - Track realized profit, revenue, cash spent, inventory value, and potential spread
 - Save show data in the browser automatically

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowDownLeft, ArrowUpRight, BarChart3, Box, Check, ChevronDown, CircleDollarSign,
-  Database, Download, Handshake, Menu, Minus, PackageOpen, Pencil, Plus, RotateCcw,
-  Search, Settings, ShoppingBag, Sparkles, Trash2, X,
+  Database, Download, Eye, EyeOff, Handshake, Menu, Minus, PackageOpen, Pencil, Plus,
+  RotateCcw, Search, Settings, ShoppingBag, Sparkles, Trash2, Undo2, X,
 } from 'lucide-react'
 import { hydrateCard, localSearch, searchCards } from './cardApi'
 import { exportLedgerCsv } from './exportCsv'
@@ -25,11 +25,14 @@ function App() {
   const [storageReady, setStorageReady] = useState(hadLocalState)
   const [tab, setTab] = useState<'overview' | 'inventory' | 'activity'>('overview')
   const [flow, setFlow] = useState<Flow | null>(null)
+  const [buyCard, setBuyCard] = useState<CardResult | null>(null)
   const [saleLot, setSaleLot] = useState<InventoryLot | null>(null)
   const [editingLot, setEditingLot] = useState<InventoryLot | null>(null)
   const [inventoryFilter, setInventoryFilter] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [tradeOpen, setTradeOpen] = useState(false)
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [undoEntry, setUndoEntry] = useState<{ snapshot: LedgerState; label: string } | null>(null)
 
   useEffect(() => {
     if (hadLocalState) return
@@ -45,6 +48,30 @@ function App() {
   useEffect(() => {
     if (storageReady) saveState(state)
   }, [state, storageReady])
+
+  useEffect(() => {
+    if (!undoEntry) return
+    const timer = window.setTimeout(() => setUndoEntry(null), 7000)
+    return () => window.clearTimeout(timer)
+  }, [undoEntry])
+
+  useEffect(() => {
+    function handleShortcut(event: KeyboardEvent) {
+      const target = event.target as HTMLElement
+      const typing = target.matches('input, textarea, select, [contenteditable="true"]')
+      if (event.key === 'Escape') {
+        setFlow(null); setBuyCard(null); setSaleLot(null); setTradeOpen(false); setGlobalSearchOpen(false); setEditingLot(null); setSettingsOpen(false)
+        return
+      }
+      if (typing || event.metaKey || event.ctrlKey || event.altKey || flow || tradeOpen || globalSearchOpen || editingLot || settingsOpen) return
+      if (event.key === '/') { event.preventDefault(); setGlobalSearchOpen(true) }
+      if (event.key.toLowerCase() === 'b') startBuy()
+      if (event.key.toLowerCase() === 's') startSale()
+      if (event.key.toLowerCase() === 't') setTradeOpen(true)
+    }
+    window.addEventListener('keydown', handleShortcut)
+    return () => window.removeEventListener('keydown', handleShortcut)
+  }, [editingLot, flow, globalSearchOpen, settingsOpen, tradeOpen])
 
   const stats = useMemo(() => {
     const units = state.lots.reduce((sum, lot) => sum + lot.quantity, 0)
@@ -62,6 +89,15 @@ function App() {
   }, [state])
 
   const filteredLots = state.lots.filter((lot) => `${lot.name} ${lot.number} ${lot.setName} ${lot.variant ?? ''}`.toLowerCase().includes(inventoryFilter.toLowerCase()))
+  const recentCards = useMemo(() => {
+    const seen = new Set<string>()
+    return [...state.lots].sort((a, b) => b.addedAt.localeCompare(a.addedAt)).filter((lot) => !seen.has(lot.id) && Boolean(seen.add(lot.id))).slice(0, 5)
+  }, [state.lots])
+
+  function commitChange(label: string, next: LedgerState) {
+    setUndoEntry({ snapshot: state, label })
+    setState(next)
+  }
 
   function recordBuy(card: CardResult, quantity: number, unitCost: number, condition: Condition, variant?: CardVariant, details?: PurchaseDetails) {
     const lotId = crypto.randomUUID()
@@ -70,16 +106,17 @@ function App() {
     const cardFormat = details?.format ?? 'raw'
     const lot: InventoryLot = { ...card, marketPrice, marketPriceOverride: cardFormat === 'graded' ? details?.gradedMarketValue : undefined, variant: variant?.name ?? 'Unspecified', variantId: variant?.id, lotId, quantity, unitCost, condition, cardFormat, gradingCompany: details?.gradingCompany, grade: details?.grade, certificationNumber: details?.certificationNumber, notes: details?.notes, addedAt: timestamp }
     const tx: Transaction = { id: crypto.randomUUID(), type: 'buy', cardId: card.id, lotId, cardName: card.name, cardNumber: card.number, setName: card.setName, condition, variant: lot.variant, cardFormat, gradingCompany: lot.gradingCompany, grade: lot.grade, certificationNumber: lot.certificationNumber, quantity, unitPrice: unitCost, unitCost, timestamp }
-    setState((current) => ({ ...current, lots: [lot, ...current.lots], transactions: [tx, ...current.transactions] }))
+    commitChange(`Bought ${quantity}× ${card.name}`, { ...state, lots: [lot, ...state.lots], transactions: [tx, ...state.transactions] })
   }
 
   function recordSale(lot: InventoryLot, quantity: number, unitPrice: number) {
     const tx: Transaction = { id: crypto.randomUUID(), type: 'sell', cardId: lot.id, lotId: lot.lotId, cardName: lot.name, cardNumber: lot.number, setName: lot.setName, condition: lot.condition, variant: lot.variant ?? 'Unspecified', cardFormat: lot.cardFormat ?? 'raw', gradingCompany: lot.gradingCompany, grade: lot.grade, certificationNumber: lot.certificationNumber, quantity, unitPrice, unitCost: lot.unitCost, timestamp: new Date().toISOString() }
-    setState((current) => ({
-      ...current,
-      lots: current.lots.map((item) => item.lotId === lot.lotId ? { ...item, quantity: item.quantity - quantity } : item).filter((item) => item.quantity > 0),
-      transactions: [tx, ...current.transactions],
-    }))
+    commitChange(`Sold ${quantity}× ${lot.name}`, { ...state, lots: state.lots.map((item) => item.lotId === lot.lotId ? { ...item, quantity: item.quantity - quantity } : item).filter((item) => item.quantity > 0), transactions: [tx, ...state.transactions] })
+  }
+
+  function startBuy(card?: CardResult) {
+    setBuyCard(card ?? null)
+    setFlow('buy')
   }
 
   function startSale(lot?: InventoryLot) {
@@ -89,30 +126,24 @@ function App() {
 
   function closeTransaction() {
     setFlow(null)
+    setBuyCard(null)
     setSaleLot(null)
   }
 
   function removeLot(lot: InventoryLot) {
     const label = `${lot.quantity}× ${lot.name} #${lot.number}`
     if (!window.confirm(`Remove ${label} from inventory?\n\nThis will not create a transaction or change your profit history.`)) return
-    setState((current) => ({ ...current, lots: current.lots.filter((item) => item.lotId !== lot.lotId) }))
+    commitChange(`Removed ${lot.name}`, { ...state, lots: state.lots.filter((item) => item.lotId !== lot.lotId) })
   }
 
   function updateLotPricing(lotId: string, unitCost: number, marketPriceOverride?: number) {
-    setState((current) => ({
-      ...current,
-      lots: current.lots.map((lot) => lot.lotId === lotId ? { ...lot, unitCost, marketPriceOverride } : lot),
-    }))
+    commitChange('Updated inventory pricing', { ...state, lots: state.lots.map((lot) => lot.lotId === lotId ? { ...lot, unitCost, marketPriceOverride } : lot) })
     setEditingLot(null)
   }
 
   function recordTrade(trade: TradeEvent, incomingLots: InventoryLot[]) {
     const outgoingQuantities = new Map(trade.outgoing.map((line) => [line.lotId, line.quantity]))
-    setState((current) => ({
-      ...current,
-      lots: [...incomingLots, ...current.lots.map((lot) => ({ ...lot, quantity: lot.quantity - (outgoingQuantities.get(lot.lotId) ?? 0) })).filter((lot) => lot.quantity > 0)],
-      trades: [trade, ...(current.trades ?? [])],
-    }))
+    commitChange('Recorded trade', { ...state, lots: [...incomingLots, ...state.lots.map((lot) => ({ ...lot, quantity: lot.quantity - (outgoingQuantities.get(lot.lotId) ?? 0) })).filter((lot) => lot.quantity > 0)], trades: [trade, ...(state.trades ?? [])] })
     setTradeOpen(false)
   }
 
@@ -120,7 +151,13 @@ function App() {
     setState((current) => ({ ...current, showName, showDate }))
   }
 
+  function toggleProfitVisibility(field: 'showRealizedProfit' | 'showPotentialProfit') {
+    const preferences = state.preferences ?? { showRealizedProfit: true, showPotentialProfit: true }
+    setState({ ...state, preferences: { ...preferences, [field]: !preferences[field] } })
+  }
+
   async function resetData(mode: 'new-show' | 'activity' | 'inventory' | 'all') {
+    setUndoEntry({ snapshot: state, label: mode === 'new-show' ? 'Started a new show' : mode === 'activity' ? 'Cleared activity' : mode === 'inventory' ? 'Cleared inventory' : 'Cleared all data' })
     if (mode === 'new-show') {
       setState((current) => ({ ...current, showName: 'New Show', showDate: new Date().toISOString().slice(0, 10), transactions: [], trades: [] }))
     } else if (mode === 'activity') {
@@ -145,6 +182,7 @@ function App() {
           <div><span>Active show</span><strong>{state.showName}</strong></div>
           <ChevronDown size={16} />
         </div>
+        <button className="global-search-trigger" onClick={() => setGlobalSearchOpen(true)}><Search /><span>Find any card</span><kbd>/</kbd></button>
         <nav>
           <button className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Overview</button>
           <button className={tab === 'inventory' ? 'active' : ''} onClick={() => setTab('inventory')}>Inventory <span>{stats.units}</span></button>
@@ -155,35 +193,38 @@ function App() {
       </header>
 
       <main>
-        {tab === 'overview' && <Overview state={state} stats={stats} onBuy={() => setFlow('buy')} onSell={() => startSale()} onTrade={() => setTradeOpen(true)} onTab={setTab} />}
-        {tab === 'inventory' && <Inventory lots={filteredLots} total={state.lots.length} filter={inventoryFilter} setFilter={setInventoryFilter} onBuy={() => setFlow('buy')} onSell={() => startSale()} onTrade={() => setTradeOpen(true)} onSellLot={startSale} onEditLot={setEditingLot} onRemoveLot={removeLot} />}
+        {tab === 'overview' && <Overview state={state} stats={stats} onBuy={() => startBuy()} onSell={() => startSale()} onTrade={() => setTradeOpen(true)} onToggleProfit={toggleProfitVisibility} onTab={setTab} />}
+        {tab === 'inventory' && <Inventory lots={filteredLots} total={state.lots.length} filter={inventoryFilter} setFilter={setInventoryFilter} onBuy={() => startBuy()} onSell={() => startSale()} onTrade={() => setTradeOpen(true)} onSellLot={startSale} onEditLot={setEditingLot} onRemoveLot={removeLot} />}
         {tab === 'activity' && <Activity transactions={state.transactions} trades={state.trades ?? []} />}
       </main>
 
       <div className="mobile-actions">
-        <button className="buy" onClick={() => setFlow('buy')}><ArrowDownLeft /> Buy</button>
+        <button className="buy" onClick={() => startBuy()}><ArrowDownLeft /> Buy</button>
         <button className="trade" onClick={() => setTradeOpen(true)}><Handshake /> Trade</button>
         <button className="sell" onClick={() => startSale()}><ArrowUpRight /> Sell</button>
       </div>
 
-      {flow && <TransactionModal flow={flow} lots={state.lots} initialLot={saleLot} onClose={closeTransaction} onBuy={recordBuy} onSell={recordSale} />}
+      {flow && <TransactionModal flow={flow} lots={state.lots} initialCard={buyCard} initialLot={saleLot} recentCards={recentCards} onClose={closeTransaction} onBuy={recordBuy} onSell={recordSale} />}
       {editingLot && <EditLotModal lot={editingLot} onClose={() => setEditingLot(null)} onSave={updateLotPricing} />}
       {tradeOpen && <TradeModal lots={state.lots} onClose={() => setTradeOpen(false)} onSave={recordTrade} />}
       {settingsOpen && <SettingsModal state={state} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
+      {globalSearchOpen && <GlobalSearchModal lots={state.lots} onClose={() => setGlobalSearchOpen(false)} onBuy={(card) => { setGlobalSearchOpen(false); startBuy(card) }} onSell={(lot) => { setGlobalSearchOpen(false); startSale(lot) }} />}
+      {undoEntry && <div className="undo-toast"><span><Check /> {undoEntry.label}</span><button onClick={() => { setState(undoEntry.snapshot); setUndoEntry(null) }}><Undo2 /> Undo</button></div>}
     </div>
   )
 }
 
-function Overview({ state, stats, onBuy, onSell, onTrade, onTab }: { state: LedgerState; stats: Stats; onBuy: () => void; onSell: () => void; onTrade: () => void; onTab: (tab: 'inventory' | 'activity') => void }) {
+function Overview({ state, stats, onBuy, onSell, onTrade, onToggleProfit, onTab }: { state: LedgerState; stats: Stats; onBuy: () => void; onSell: () => void; onTrade: () => void; onToggleProfit: (field: 'showRealizedProfit' | 'showPotentialProfit') => void; onTab: (tab: 'inventory' | 'activity') => void }) {
   const recentEvents = [...state.transactions.map((item) => ({ kind: 'transaction' as const, item })), ...(state.trades ?? []).map((item) => ({ kind: 'trade' as const, item }))].sort((a, b) => b.item.timestamp.localeCompare(a.item.timestamp)).slice(0, 5)
+  const preferences = state.preferences ?? { showRealizedProfit: true, showPotentialProfit: true }
   return <>
     <section className="hero-row">
       <div><p className="eyebrow">SHOW COMMAND CENTER</p><h1>Keep the table moving.</h1><p>Every card, cost, and deal—captured while it happens.</p></div>
       <div className="desktop-actions"><button className="action buy" onClick={onBuy}><ArrowDownLeft /> Record buy</button><button className="action trade" onClick={onTrade}><Handshake /> Record trade</button><button className="action sell" onClick={onSell}><ArrowUpRight /> Record sale</button></div>
     </section>
     <section className="stat-grid">
-      <StatCard label="Realized profit" value={money.format(stats.profit)} detail={`${state.transactions.filter((tx) => tx.type === 'sell').length} sales · ${(state.trades ?? []).length} trades`} icon={<CircleDollarSign />} tone="profit" />
-      <StatCard label="Potential profit" value={money.format(stats.potential)} detail="Market value − cost basis" icon={<Sparkles />} tone="potential" />
+      <StatCard label="Realized profit" value={money.format(stats.profit)} detail={`${state.transactions.filter((tx) => tx.type === 'sell').length} sales · ${(state.trades ?? []).length} trades`} icon={<CircleDollarSign />} tone="profit" concealed={!preferences.showRealizedProfit} onToggle={() => onToggleProfit('showRealizedProfit')} />
+      <StatCard label="Potential profit" value={money.format(stats.potential)} detail="Market value − cost basis" icon={<Sparkles />} tone="potential" concealed={!preferences.showPotentialProfit} onToggle={() => onToggleProfit('showPotentialProfit')} />
       <StatCard label="Inventory value" value={money.format(stats.market)} detail={`${stats.units} cards on hand`} icon={<Box />} />
       <StatCard label="Inventory cost basis" value={money.format(stats.cost)} detail={`${money.format(stats.buys)} cash spent at show`} icon={<ArrowDownLeft />} />
       <StatCard label="Cash received" value={money.format(stats.revenue)} detail={`${state.transactions.filter((tx) => tx.type === 'sell').length} sales · ${(state.trades ?? []).length} trades`} icon={<ArrowUpRight />} />
@@ -202,8 +243,8 @@ function Overview({ state, stats, onBuy, onSell, onTrade, onTab }: { state: Ledg
   </>
 }
 
-function StatCard({ label, value, detail, icon, tone }: { label: string; value: string; detail: string; icon: React.ReactNode; tone?: string }) {
-  return <article className={`stat-card ${tone ?? ''}`}><div className="stat-top"><span>{label}</span><i>{icon}</i></div><strong>{value}</strong><small>{detail}</small></article>
+function StatCard({ label, value, detail, icon, tone, concealed = false, onToggle }: { label: string; value: string; detail: string; icon: React.ReactNode; tone?: string; concealed?: boolean; onToggle?: () => void }) {
+  return <article className={`stat-card ${tone ?? ''} ${concealed ? 'concealed' : ''}`}><div className="stat-top"><span>{label}</span><div className="stat-icons"><i>{icon}</i>{onToggle && <button onClick={onToggle} aria-label={`${concealed ? 'Show' : 'Hide'} ${label}`}>{concealed ? <EyeOff /> : <Eye />}</button>}</div></div><strong>{concealed ? '••••' : value}</strong><small>{concealed ? 'Value hidden' : detail}</small></article>
 }
 
 function EmptyActivity({ onBuy, onSell }: { onBuy: () => void; onSell: () => void }) {
@@ -305,6 +346,30 @@ function SettingsModal({ state, onClose, onUpdateShow, onReset, onExport }: { st
   </div></div>
 }
 
+function GlobalSearchModal({ lots, onClose, onBuy, onSell }: { lots: InventoryLot[]; onClose: () => void; onBuy: (card: CardResult) => void; onSell: (lot: InventoryLot) => void }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<CardResult[]>([])
+  const [loading, setLoading] = useState(false)
+  useEffect(() => {
+    if (query.trim().length < 2) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(async () => {
+      setLoading(true)
+      try { setResults(await searchCards(query, controller.signal)) }
+      catch (error) { if ((error as Error).name !== 'AbortError') setResults(localSearch(query)) }
+      finally { setLoading(false) }
+    }, 250)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [query])
+  const inventory = query.trim() ? lots.filter((lot) => `${lot.name} ${lot.number} ${lot.setName} ${lot.variant ?? ''}`.toLowerCase().includes(query.toLowerCase())).slice(0, 5) : []
+  return <div className="modal-backdrop command-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><div className="modal command-modal" role="dialog" aria-modal="true">
+    <div className="command-input"><Search /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search inventory or the full card catalog…" />{loading ? <span className="spinner" /> : <button onClick={onClose}><X /></button>}</div>
+    {!query && <div className="command-empty"><kbd>B</kbd><span>Buy</span><kbd>S</kbd><span>Sell</span><kbd>T</kbd><span>Trade</span><p>Type a card name or collector number to begin.</p></div>}
+    {inventory.length > 0 && <section className="command-section"><p>IN YOUR INVENTORY</p>{inventory.map((lot) => <div className="command-row" key={lot.lotId}><CardThumb lot={lot} /><span><strong>{lot.name}</strong><small>{lot.setName} · {lot.variant ?? 'Unspecified'} · {lotDescriptor(lot)} · {lot.quantity} available</small></span><button className="row-sell" onClick={() => onSell(lot)}><ArrowUpRight /> Sell</button></div>)}</section>}
+    {query.length >= 2 && <section className="command-section"><p>CARD CATALOG</p>{results.slice(0, 8).map((card) => <div className="command-row" key={card.id}><CardThumb lot={card} /><span><strong>{card.name}</strong><small>{card.setName} · #{card.number}</small></span><button onClick={() => onBuy(card)}><ArrowDownLeft /> Buy</button></div>)}</section>}
+  </div></div>
+}
+
 type OutgoingDraft = { lot: InventoryLot; quantity: number; unitTradeValue: number }
 type IncomingDraft = { card: CardResult; quantity: number; unitTradeValue: number; condition: Condition; variantId?: number; format: CardFormat; gradingCompany?: string; grade?: string; certificationNumber?: string }
 
@@ -394,17 +459,17 @@ function TradeDraftRow({ name, detail, image, quantity, maxQuantity = 99, value,
   return <div className="trade-draft-row"><CardThumb lot={{ name, image }} /><div><strong>{name}</strong><small>{detail}</small></div><label>Qty<input type="number" min="1" max={maxQuantity} value={quantity} onChange={(event) => onQuantity(Math.max(1, Math.min(maxQuantity, Number(event.target.value))))} /></label><label>Value ea.<div><span>$</span><input inputMode="decimal" value={value} onChange={(event) => onValue(Math.max(0, Number(event.target.value)))} /></div></label><button onClick={onRemove} aria-label={`Remove ${name}`}><X /></button></div>
 }
 
-function TransactionModal({ flow, lots, initialLot, onClose, onBuy, onSell }: { flow: Flow; lots: InventoryLot[]; initialLot?: InventoryLot | null; onClose: () => void; onBuy: (card: CardResult, quantity: number, price: number, condition: Condition, variant?: CardVariant, details?: PurchaseDetails) => void; onSell: (lot: InventoryLot, quantity: number, price: number) => void }) {
+function TransactionModal({ flow, lots, initialCard, initialLot, recentCards, onClose, onBuy, onSell }: { flow: Flow; lots: InventoryLot[]; initialCard?: CardResult | null; initialLot?: InventoryLot | null; recentCards: InventoryLot[]; onClose: () => void; onBuy: (card: CardResult, quantity: number, price: number, condition: Condition, variant?: CardVariant, details?: PurchaseDetails) => void; onSell: (lot: InventoryLot, quantity: number, price: number) => void }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<CardResult[]>([])
-  const [selectedCard, setSelectedCard] = useState<CardResult | null>(null)
+  const [selectedCard, setSelectedCard] = useState<CardResult | null>(initialCard ?? null)
   const [selectedLot, setSelectedLot] = useState<InventoryLot | null>(initialLot ?? null)
   const [loading, setLoading] = useState(false)
   const [offline, setOffline] = useState(false)
   const [quantity, setQuantity] = useState(1)
-  const [price, setPrice] = useState(initialLot ? (effectiveMarketPrice(initialLot) ?? initialLot.unitCost).toFixed(2) : '')
+  const [price, setPrice] = useState(initialLot ? (effectiveMarketPrice(initialLot) ?? initialLot.unitCost).toFixed(2) : initialCard?.marketPrice?.toFixed(2) ?? '')
   const [condition, setCondition] = useState<Condition>(initialLot?.condition ?? 'NM')
-  const [variantId, setVariantId] = useState<number | undefined>(initialLot?.variantId)
+  const [variantId, setVariantId] = useState<number | undefined>(initialLot?.variantId ?? initialCard?.variants?.[0]?.id)
   const [cardFormat, setCardFormat] = useState<CardFormat>(initialLot?.cardFormat ?? 'raw')
   const [gradingCompany, setGradingCompany] = useState(initialLot?.gradingCompany ?? 'PSA')
   const [grade, setGrade] = useState(initialLot?.grade ?? '10')
@@ -429,6 +494,8 @@ function TransactionModal({ flow, lots, initialLot, onClose, onBuy, onSell }: { 
   const visibleResults = flow === 'buy' ? (query.trim().length >= 2 ? results : []) : (query.trim() ? inventoryResults : [])
   const chosen = flow === 'buy' ? selectedCard : selectedLot
   const selectedVariant = selectedCard?.variants?.find((variant) => variant.id === variantId)
+  const manualGradedPrice = gradedMarketValue.trim() !== '' && Number.isFinite(Number(gradedMarketValue)) ? Number(gradedMarketValue) : undefined
+  const pricingBase = flow === 'buy' ? cardFormat === 'graded' ? manualGradedPrice : selectedVariant?.marketPrices[condition] ?? selectedCard?.marketPrice : selectedLot ? effectiveMarketPrice(selectedLot) : undefined
   const gradedValid = cardFormat === 'raw' || (gradingCompany.trim() && grade.trim() && gradedMarketValue.trim() !== '' && Number(gradedMarketValue) >= 0)
   const valid = chosen && quantity > 0 && price.trim() !== '' && Number(price) >= 0 && gradedValid && (flow === 'buy' || quantity <= (selectedLot?.quantity ?? 0))
 
@@ -464,7 +531,8 @@ function TransactionModal({ flow, lots, initialLot, onClose, onBuy, onSell }: { 
       <label>{flow === 'buy' ? 'Find the card' : 'Find it in inventory'}</label>
       <div className="search-bar"><Search /><input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={flow === 'buy' ? 'Try “Froakie 060” or “060”…' : 'Search your cards…'} />{loading && <span className="spinner" />}</div>
       {offline && <p className="notice">Live catalog unavailable—showing offline matches.</p>}
-      {!query && <div className="search-prompt"><Search /><h3>Search by name or number</h3><p>{flow === 'buy' ? 'We’ll look across the Pokémon TCG catalog.' : 'Choose the exact inventory lot you sold from.'}</p></div>}
+      {!query && (flow !== 'buy' || recentCards.length === 0) && <div className="search-prompt"><Search /><h3>Search by name or number</h3><p>{flow === 'buy' ? 'We’ll look across the Pokémon TCG catalog.' : 'Choose the exact inventory lot you sold from.'}</p></div>}
+      {!query && flow === 'buy' && recentCards.length > 0 && <div className="recent-cards"><p>RECENT CARDS</p>{recentCards.map((card) => <button key={card.lotId} onClick={() => void chooseCard(card)}><CardThumb lot={card} /><span><strong>{card.name}</strong><small>{card.setName} · #{card.number}</small></span></button>)}</div>}
       <div className="result-list">{visibleResults.map((item) => {
         const lot = item as InventoryLot
         const shownMarket = flow === 'sell' ? effectiveMarketPrice(lot) : item.marketPrice
@@ -478,7 +546,7 @@ function TransactionModal({ flow, lots, initialLot, onClose, onBuy, onSell }: { 
         <label>Variant<select value={flow === 'buy' ? variantId ?? '' : selectedLot?.variant ?? 'Unspecified'} onChange={(e) => { const id = Number(e.target.value); setVariantId(id); const variant = selectedCard?.variants?.find((item) => item.id === id); const suggested = variant?.marketPrices[condition]; if (suggested !== undefined) setPrice(suggested.toFixed(2)) }} disabled={flow === 'sell'}>{flow === 'buy' ? selectedCard?.variants?.length ? selectedCard.variants.map((variant) => <option value={variant.id} key={variant.id}>{variant.name}</option>) : <option value="">Unspecified</option> : <option>{selectedLot?.variant ?? 'Unspecified'}</option>}</select></label>
         {flow === 'buy' && cardFormat === 'graded' ? <><label>Grading company<select value={gradingCompany} onChange={(e) => setGradingCompany(e.target.value)}>{gradingCompanies.map((company) => <option key={company}>{company}</option>)}</select></label><label>Grade<input className="plain-input" value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="10, 9.5, Authentic…" /></label><label>Certification number<input className="plain-input" value={certificationNumber} onChange={(e) => setCertificationNumber(e.target.value)} placeholder="Optional" /></label></> : flow === 'sell' && selectedLot?.cardFormat === 'graded' ? <label>Grade<input className="plain-input" value={lotDescriptor(selectedLot)} disabled /></label> : <label>Condition<select value={condition} onChange={(e) => setCondition(e.target.value as Condition)} disabled={flow === 'sell'}>{conditions.map((c) => <option key={c}>{c}</option>)}</select></label>}
         <label>Quantity<div className="quantity-input"><button onClick={() => setQuantity(Math.max(1, quantity - 1))}><Minus /></button><input value={quantity} onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))} type="number" min="1" /><button onClick={() => setQuantity(Math.min(selectedLot?.quantity ?? 99, quantity + 1))}><Plus /></button></div></label>
-        <label className="price-label">{flow === 'buy' ? 'Cost per card' : 'Sale price per card'}<div className="money-input"><span>$</span><input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0.00" /></div>{flow === 'buy' && cardFormat === 'raw' && selectedVariant?.marketPrices[condition] !== undefined && <small className="price-hint">{condition} {selectedVariant.name} market: {money.format(selectedVariant.marketPrices[condition]!)}</small>}</label>
+        <label className="price-label">{flow === 'buy' ? 'Cost per card' : 'Sale price per card'}<div className="money-input"><span>$</span><input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0.00" /></div>{pricingBase !== undefined && <><div className="price-presets">{[70, 75, 80, 85, 90].map((percent) => <button type="button" key={percent} onClick={() => setPrice((pricingBase * percent / 100).toFixed(2))}>{percent}%</button>)}<button type="button" onClick={() => setPrice((Math.round(pricingBase / 5) * 5).toFixed(2))}>Nearest $5</button></div><small className="price-hint">Market reference: {money.format(pricingBase)}</small></>}</label>
         {flow === 'buy' && cardFormat === 'graded' && <><label className="price-label"><span className="field-label-row">Graded market value<b>Manual value</b></span><div className="money-input manual-price"><span>$</span><input value={gradedMarketValue} onChange={(e) => setGradedMarketValue(e.target.value)} inputMode="decimal" placeholder="0.00" /></div><small className="price-hint">TCGTracking does not provide graded pricing, so this value is entered manually.</small></label><label className="price-label">Notes<textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Subgrades, label type, qualifiers, purchase notes…" /></label></>}
       </div>
       {flow === 'sell' && selectedLot && <div className="profit-preview"><span>Estimated profit</span><strong className={Number(price) >= selectedLot.unitCost ? 'positive' : 'negative'}>{money.format(quantity * (Number(price || 0) - selectedLot.unitCost))}</strong><small>Cost basis: {money.format(quantity * selectedLot.unitCost)}</small></div>}

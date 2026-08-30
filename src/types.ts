@@ -88,4 +88,8 @@ export interface LedgerState {
   lots: InventoryLot[]
   transactions: Transaction[]
   trades?: TradeEvent[]
+  preferences?: {
+    showRealizedProfit: boolean
+    showPotentialProfit: boolean
+  }
 }
