@@ -12,12 +12,8 @@ const now = new Date()
 const today = now.toISOString().slice(0, 10)
 
 export const initialState: LedgerState = {
-  showName: 'Weekend Card Show',
+  showName: 'New Show',
   showDate: today,
-  lots: [
-    { ...sampleCards[2], lotId: 'lot-charizard', quantity: 2, unitCost: 142, condition: 'NM', addedAt: now.toISOString() },
-    { ...sampleCards[3], lotId: 'lot-iron', quantity: 4, unitCost: 14.5, condition: 'NM', addedAt: now.toISOString() },
-    { ...sampleCards[1], lotId: 'lot-squirtle', quantity: 12, unitCost: 0.1, condition: 'NM', addedAt: now.toISOString() },
-  ],
+  lots: [],
   transactions: [],
 }

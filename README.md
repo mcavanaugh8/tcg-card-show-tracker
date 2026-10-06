@@ -16,9 +16,9 @@ A fast, local-first inventory and profit tracker for trading card show vendors.
 - Use global search, recent cards, market-percentage price presets, keyboard shortcuts, and one-click undo for fast show-floor entry
 - Record sales against the exact lot they came from
 - Track realized profit, revenue, cash spent, inventory value, and potential spread
-- Install the app on a phone, tablet, or computer and use its interface and complete bundled catalog offline
-- Save show data in the browser automatically
-- Keep a second device-local IndexedDB backup for recovery
+- Install the app and use its interface and complete bundled catalog without an internet connection
+- Save all shows automatically to the repo-local SQLite database at `data/tabletop-ledger.sqlite`
+- Keep up to 100 rolling SQLite recovery snapshots whenever saved state changes
 - Export inventory and transaction history together as CSV
 - Keep a complete activity ledger for the show
 
@@ -32,6 +32,15 @@ npm run dev
 ```
 
 Open the local address shown in the terminal. Use `npm run build` for a production build.
+
+For the production build, run:
+
+```bash
+npm run build
+npm start
+```
+
+Both commands use the same repo-local SQLite database. On first launch, any surviving data from the previous browser-storage version is imported automatically if SQLite is empty. Browser storage is retained only as a temporary UI/offline cache; SQLite is the source of truth.
 
 Refresh the bundled Pokémon catalog when needed with `npm run sync:catalog`.
 

@@ -3,3 +3,6 @@ dist
 .DS_Store
 *.local
 *.tsbuildinfo
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal

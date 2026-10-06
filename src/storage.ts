@@ -56,24 +56,15 @@ function initialWorkspace(): WorkspaceState {
   return { activeShowId: show.id, shows: [show] }
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+// Read the previous browser database once so existing installations can be
+// migrated into SQLite. It is no longer used as the application's database.
+function openLegacyDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1)
     request.onupgradeneeded = () => request.result.createObjectStore(STORE_NAME)
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
   })
-}
-
-async function writeBackup(state: WorkspaceState) {
-  const database = await openDatabase()
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(STORE_NAME, 'readwrite')
-    transaction.objectStore(STORE_NAME).put(state, KEY)
-    transaction.oncomplete = () => resolve()
-    transaction.onerror = () => reject(transaction.error)
-  })
-  database.close()
 }
 
 export function hasLocalState() {
@@ -87,7 +78,7 @@ export function hasLocalState() {
   }
 }
 
-export function loadState(): WorkspaceState {
+export function loadCachedState(): WorkspaceState {
   try {
     const saved = localStorage.getItem(KEY)
     return saved ? migrateWorkspace(JSON.parse(saved) as LedgerState | WorkspaceState) : initialWorkspace()
@@ -96,9 +87,9 @@ export function loadState(): WorkspaceState {
   }
 }
 
-export async function loadBackupState(): Promise<WorkspaceState | null> {
+async function loadLegacyBackup(): Promise<WorkspaceState | null> {
   try {
-    const database = await openDatabase()
+    const database = await openLegacyDatabase()
     const result = await new Promise<WorkspaceState | null>((resolve, reject) => {
       const request = database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(KEY)
       request.onsuccess = () => resolve(request.result ? migrateWorkspace(request.result as LedgerState | WorkspaceState) : null)
@@ -111,21 +102,44 @@ export async function loadBackupState(): Promise<WorkspaceState | null> {
   }
 }
 
-export function saveState(state: WorkspaceState) {
-  try { localStorage.setItem(KEY, JSON.stringify(state)) } catch { /* IndexedDB remains available. */ }
-  void writeBackup(state).catch(() => undefined)
+function cacheState(state: WorkspaceState) {
+  try { localStorage.setItem(KEY, JSON.stringify(state)) } catch { /* SQLite remains authoritative. */ }
+}
+
+export async function loadState(): Promise<WorkspaceState> {
+  const response = await fetch('/api/state', { cache: 'no-store' })
+  if (!response.ok) throw new Error('Unable to read the local SQLite database')
+  const result = await response.json() as { state: WorkspaceState | null }
+  if (result.state) {
+    const state = migrateWorkspace(result.state)
+    cacheState(state)
+    return state
+  }
+
+  const legacy = hasLocalState() ? loadCachedState() : await loadLegacyBackup()
+  const state = legacy ?? initialWorkspace()
+  await saveState(state)
+  return state
+}
+
+let saveQueue: Promise<void> = Promise.resolve()
+
+export function saveState(state: WorkspaceState): Promise<void> {
+  cacheState(state)
+  saveQueue = saveQueue.catch(() => undefined).then(async () => {
+    const response = await fetch('/api/state', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(state),
+    })
+    if (!response.ok) throw new Error('Unable to save to the local SQLite database')
+  })
+  return saveQueue
 }
 
 export async function clearSavedState() {
-  try { localStorage.removeItem(KEY) } catch { /* Continue clearing the backup. */ }
-  try {
-    const database = await openDatabase()
-    await new Promise<void>((resolve, reject) => {
-      const transaction = database.transaction(STORE_NAME, 'readwrite')
-      transaction.objectStore(STORE_NAME).delete(KEY)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error)
-    })
-    database.close()
-  } catch { /* Both stores are best-effort device-local persistence. */ }
+  await saveQueue.catch(() => undefined)
+  const response = await fetch('/api/state', { method: 'DELETE' })
+  if (!response.ok) throw new Error('Unable to clear the local SQLite database')
+  try { localStorage.removeItem(KEY) } catch { /* The SQLite database was still cleared. */ }
 }

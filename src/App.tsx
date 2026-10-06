@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { hydrateCard, localSearch, searchCards } from './cardApi'
 import { exportLedgerCsv } from './exportCsv'
-import { clearSavedState, hasLocalState, loadBackupState, loadState, saveState } from './storage'
+import { clearSavedState, loadCachedState, loadState, saveState } from './storage'
 import type { CardFormat, CardResult, CardVariant, Condition, InventoryLot, LedgerState, ShowLedger, TradeEvent, TradeLine, Transaction, WorkspaceState } from './types'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -22,9 +22,9 @@ type Flow = 'buy' | 'sell'
 type Stats = { units: number; cost: number; market: number; potential: number; revenue: number; profit: number; buys: number }
 
 function App() {
-  const [hadLocalState] = useState(hasLocalState)
-  const [workspace, setWorkspace] = useState<WorkspaceState>(loadState)
-  const [storageReady, setStorageReady] = useState(hadLocalState)
+  const [workspace, setWorkspace] = useState<WorkspaceState>(loadCachedState)
+  const [storageReady, setStorageReady] = useState(false)
+  const [databaseStatus, setDatabaseStatus] = useState<'loading' | 'saved' | 'unavailable'>('loading')
   const [tab, setTab] = useState<'overview' | 'inventory' | 'activity'>('overview')
   const [flow, setFlow] = useState<Flow | null>(null)
   const [buyCard, setBuyCard] = useState<CardResult | null>(null)
@@ -37,18 +37,23 @@ function App() {
   const [undoEntry, setUndoEntry] = useState<{ snapshot: LedgerState; label: string } | null>(null)
 
   useEffect(() => {
-    if (hadLocalState) return
     let active = true
-    void loadBackupState().then((backup) => {
-      if (active && backup) setWorkspace(backup)
+    void loadState().then((saved) => {
+      if (active) {
+        setWorkspace(saved)
+        setDatabaseStatus('saved')
+      }
+    }).catch(() => {
+      if (active) setDatabaseStatus('unavailable')
     }).finally(() => {
       if (active) setStorageReady(true)
     })
     return () => { active = false }
-  }, [hadLocalState])
+  }, [])
 
   useEffect(() => {
-    if (storageReady) saveState(workspace)
+    if (!storageReady) return
+    void saveState(workspace).then(() => setDatabaseStatus('saved')).catch(() => setDatabaseStatus('unavailable'))
   }, [workspace, storageReady])
 
   const state = workspace.shows.find((show) => show.id === workspace.activeShowId) ?? workspace.shows[0]
@@ -246,7 +251,7 @@ function App() {
       {flow && <TransactionModal flow={flow} lots={state.lots} initialCard={buyCard} initialLot={saleLot} recentCards={recentCards} onClose={closeTransaction} onBuy={recordBuy} onSell={recordSale} />}
       {editingLot && <EditLotModal lot={editingLot} onClose={() => setEditingLot(null)} onSave={updateLotPricing} />}
       {tradeOpen && <TradeModal lots={state.lots} onClose={() => setTradeOpen(false)} onSave={recordTrade} />}
-      {settingsOpen && <SettingsModal state={state} shows={workspace.shows} activeShowId={workspace.activeShowId} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onCreateShow={createShow} onSwitchShow={switchShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
+      {settingsOpen && <SettingsModal state={state} shows={workspace.shows} activeShowId={workspace.activeShowId} databaseStatus={databaseStatus} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onCreateShow={createShow} onSwitchShow={switchShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
       {globalSearchOpen && <GlobalSearchModal lots={state.lots} onClose={() => setGlobalSearchOpen(false)} onBuy={(card) => { setGlobalSearchOpen(false); startBuy(card) }} onSell={(lot) => { setGlobalSearchOpen(false); startSale(lot) }} />}
       {undoEntry && <div className="undo-toast"><span><Check /> {undoEntry.label}</span><button onClick={() => { setState(undoEntry.snapshot); setUndoEntry(null) }}><Undo2 /> Undo</button></div>}
     </div>
@@ -347,7 +352,7 @@ function EditLotModal({ lot, onClose, onSave }: { lot: InventoryLot; onClose: ()
   </div></div>
 }
 
-function SettingsModal({ state, shows, activeShowId, onClose, onUpdateShow, onCreateShow, onSwitchShow, onReset, onExport }: { state: LedgerState; shows: ShowLedger[]; activeShowId: string; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onCreateShow: (name: string, date: string, carryInventory: boolean) => void; onSwitchShow: (id: string) => void; onReset: (mode: 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
+function SettingsModal({ state, shows, activeShowId, databaseStatus, onClose, onUpdateShow, onCreateShow, onSwitchShow, onReset, onExport }: { state: LedgerState; shows: ShowLedger[]; activeShowId: string; databaseStatus: 'loading' | 'saved' | 'unavailable'; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onCreateShow: (name: string, date: string, carryInventory: boolean) => void; onSwitchShow: (id: string) => void; onReset: (mode: 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
   const [showName, setShowName] = useState(state.showName)
   const [showDate, setShowDate] = useState(state.showDate)
   const [newShowName, setNewShowName] = useState('')
@@ -379,15 +384,15 @@ function SettingsModal({ state, shows, activeShowId, onClose, onUpdateShow, onCr
         <button className="settings-secondary" onClick={onExport}><Download /> Export all data as CSV</button>
       </section>
       <section className="settings-section">
-        <div className="settings-title"><span className="settings-symbol"><Database /></span><div><h3>Device backup</h3><p>Your ledger is saved in normal browser storage and a separate application database on this device.</p></div></div>
-        <span className="backup-status"><Check /> Two local copies active</span>
+        <div className="settings-title"><span className="settings-symbol"><Database /></span><div><h3>Local database</h3><p>The SQLite database is stored at <code>data/tabletop-ledger.sqlite</code> inside this project.</p></div></div>
+        <span className={`backup-status ${databaseStatus === 'unavailable' ? 'error' : ''}`}>{databaseStatus === 'saved' ? <Check /> : <Database />} {databaseStatus === 'saved' ? 'Saved to SQLite' : databaseStatus === 'loading' ? 'Opening SQLite…' : 'SQLite server unavailable—changes are pending'}</span>
       </section>
       <section className="settings-section danger-zone">
         <div className="settings-title"><span className="settings-symbol"><RotateCcw /></span><div><h3>Reset data</h3><p>Choose exactly what you want to clear.</p></div></div>
         <div className="reset-grid">
           <button onClick={() => confirmReset('activity', 'Clear all buy and sale activity?\n\nYour inventory will stay unchanged.')}><strong>Clear activity</strong><small>Keep current inventory</small></button>
           <button onClick={() => confirmReset('inventory', 'Clear the entire inventory?\n\nTransaction history and realized profit will stay unchanged.')}><strong>Clear inventory</strong><small>Keep activity and profit</small></button>
-          <button className="reset-all" onClick={() => confirmReset('all', 'Clear everything?\n\nThis permanently removes all inventory, activity, and both saved copies on this device.')}><strong>Clear everything</strong><small>Empty inventory and activity</small></button>
+          <button className="reset-all" onClick={() => confirmReset('all', 'Clear the active database state?\n\nThe app will start fresh. A recovery snapshot remains in SQLite.')}><strong>Clear everything</strong><small>Start fresh; retain recovery snapshot</small></button>
         </div>
       </section>
     </div>
