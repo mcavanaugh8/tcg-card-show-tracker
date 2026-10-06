@@ -24,7 +24,8 @@ type Stats = { units: number; cost: number; market: number; potential: number; r
 function App() {
   const [workspace, setWorkspace] = useState<WorkspaceState>(loadCachedState)
   const [storageReady, setStorageReady] = useState(false)
-  const [databaseStatus, setDatabaseStatus] = useState<'loading' | 'saved' | 'unavailable'>('loading')
+  const [databaseStatus, setDatabaseStatus] = useState<'loading' | 'saved' | 'backup-warning' | 'unavailable'>('loading')
+  const [backupPath, setBackupPath] = useState('')
   const [tab, setTab] = useState<'overview' | 'inventory' | 'activity'>('overview')
   const [flow, setFlow] = useState<Flow | null>(null)
   const [buyCard, setBuyCard] = useState<CardResult | null>(null)
@@ -53,7 +54,10 @@ function App() {
 
   useEffect(() => {
     if (!storageReady) return
-    void saveState(workspace).then(() => setDatabaseStatus('saved')).catch(() => setDatabaseStatus('unavailable'))
+    void saveState(workspace).then((result) => {
+      setBackupPath(result.backup.path)
+      setDatabaseStatus(result.backup.ok ? 'saved' : 'backup-warning')
+    }).catch(() => setDatabaseStatus('unavailable'))
   }, [workspace, storageReady])
 
   const state = workspace.shows.find((show) => show.id === workspace.activeShowId) ?? workspace.shows[0]
@@ -251,7 +255,7 @@ function App() {
       {flow && <TransactionModal flow={flow} lots={state.lots} initialCard={buyCard} initialLot={saleLot} recentCards={recentCards} onClose={closeTransaction} onBuy={recordBuy} onSell={recordSale} />}
       {editingLot && <EditLotModal lot={editingLot} onClose={() => setEditingLot(null)} onSave={updateLotPricing} />}
       {tradeOpen && <TradeModal lots={state.lots} onClose={() => setTradeOpen(false)} onSave={recordTrade} />}
-      {settingsOpen && <SettingsModal state={state} shows={workspace.shows} activeShowId={workspace.activeShowId} databaseStatus={databaseStatus} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onCreateShow={createShow} onSwitchShow={switchShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
+      {settingsOpen && <SettingsModal state={state} shows={workspace.shows} activeShowId={workspace.activeShowId} databaseStatus={databaseStatus} backupPath={backupPath} onClose={() => setSettingsOpen(false)} onUpdateShow={updateShow} onCreateShow={createShow} onSwitchShow={switchShow} onReset={resetData} onExport={() => exportLedgerCsv(state)} />}
       {globalSearchOpen && <GlobalSearchModal lots={state.lots} onClose={() => setGlobalSearchOpen(false)} onBuy={(card) => { setGlobalSearchOpen(false); startBuy(card) }} onSell={(lot) => { setGlobalSearchOpen(false); startSale(lot) }} />}
       {undoEntry && <div className="undo-toast"><span><Check /> {undoEntry.label}</span><button onClick={() => { setState(undoEntry.snapshot); setUndoEntry(null) }}><Undo2 /> Undo</button></div>}
     </div>
@@ -352,7 +356,7 @@ function EditLotModal({ lot, onClose, onSave }: { lot: InventoryLot; onClose: ()
   </div></div>
 }
 
-function SettingsModal({ state, shows, activeShowId, databaseStatus, onClose, onUpdateShow, onCreateShow, onSwitchShow, onReset, onExport }: { state: LedgerState; shows: ShowLedger[]; activeShowId: string; databaseStatus: 'loading' | 'saved' | 'unavailable'; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onCreateShow: (name: string, date: string, carryInventory: boolean) => void; onSwitchShow: (id: string) => void; onReset: (mode: 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
+function SettingsModal({ state, shows, activeShowId, databaseStatus, backupPath, onClose, onUpdateShow, onCreateShow, onSwitchShow, onReset, onExport }: { state: LedgerState; shows: ShowLedger[]; activeShowId: string; databaseStatus: 'loading' | 'saved' | 'backup-warning' | 'unavailable'; backupPath: string; onClose: () => void; onUpdateShow: (name: string, date: string) => void; onCreateShow: (name: string, date: string, carryInventory: boolean) => void; onSwitchShow: (id: string) => void; onReset: (mode: 'activity' | 'inventory' | 'all') => Promise<void>; onExport: () => void }) {
   const [showName, setShowName] = useState(state.showName)
   const [showDate, setShowDate] = useState(state.showDate)
   const [newShowName, setNewShowName] = useState('')
@@ -385,7 +389,8 @@ function SettingsModal({ state, shows, activeShowId, databaseStatus, onClose, on
       </section>
       <section className="settings-section">
         <div className="settings-title"><span className="settings-symbol"><Database /></span><div><h3>Local database</h3><p>The SQLite database is stored at <code>data/tabletop-ledger.sqlite</code> inside this project.</p></div></div>
-        <span className={`backup-status ${databaseStatus === 'unavailable' ? 'error' : ''}`}>{databaseStatus === 'saved' ? <Check /> : <Database />} {databaseStatus === 'saved' ? 'Saved to SQLite' : databaseStatus === 'loading' ? 'Opening SQLite…' : 'SQLite server unavailable—changes are pending'}</span>
+        <span className={`backup-status ${databaseStatus === 'unavailable' || databaseStatus === 'backup-warning' ? 'error' : ''}`}>{databaseStatus === 'saved' ? <Check /> : <Database />} {databaseStatus === 'saved' ? 'SQLite and redundant backups are current' : databaseStatus === 'loading' ? 'Opening SQLite…' : databaseStatus === 'backup-warning' ? 'SQLite saved; Documents backup needs attention' : 'SQLite server unavailable—changes are pending'}</span>
+        {backupPath && <p className="backup-path">Backup folder: <code>{backupPath}</code></p>}
       </section>
       <section className="settings-section danger-zone">
         <div className="settings-title"><span className="settings-symbol"><RotateCcw /></span><div><h3>Reset data</h3><p>Choose exactly what you want to clear.</p></div></div>

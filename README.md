@@ -18,7 +18,10 @@ A fast, local-first inventory and profit tracker for trading card show vendors.
 - Track realized profit, revenue, cash spent, inventory value, and potential spread
 - Install the app and use its interface and complete bundled catalog without an internet connection
 - Save all shows automatically to the repo-local SQLite database at `data/tabletop-ledger.sqlite`
-- Keep up to 100 rolling SQLite recovery snapshots whenever saved state changes
+- Keep up to 100 rolling recovery snapshots inside SQLite
+- Atomically mirror the latest workspace to JSON and SQLite in `~/Documents/Tabletop Ledger Backups`
+- Maintain a separate latest JSON recovery file for every individual show
+- Keep up to 100 timestamped JSON backups in that Documents folder
 - Export inventory and transaction history together as CSV
 - Keep a complete activity ledger for the show
 
@@ -41,6 +44,8 @@ npm start
 ```
 
 Both commands use the same repo-local SQLite database. On first launch, any surviving data from the previous browser-storage version is imported automatically if SQLite is empty. Browser storage is retained only as a temporary UI/offline cache; SQLite is the source of truth.
+
+The live database and its WAL files are ignored by Git and are never included in normal commits. The external backup folder can be changed by setting `TABLETOP_BACKUP_DIR` before starting the server.
 
 Refresh the bundled Pokémon catalog when needed with `npm run sync:catalog`.
 

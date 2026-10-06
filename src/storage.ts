@@ -5,6 +5,10 @@ const KEY = 'tabletop-ledger-v1'
 const DB_NAME = 'tabletop-ledger-backup'
 const STORE_NAME = 'ledger'
 
+export type SaveResult = {
+  backup: { ok: boolean; path: string; updatedAt: string | null; error: string | null }
+}
+
 function showId() {
   return globalThis.crypto?.randomUUID?.() ?? `show-${Date.now()}`
 }
@@ -122,17 +126,18 @@ export async function loadState(): Promise<WorkspaceState> {
   return state
 }
 
-let saveQueue: Promise<void> = Promise.resolve()
+let saveQueue: Promise<SaveResult> = Promise.resolve({ backup: { ok: false, path: '', updatedAt: null, error: null } })
 
-export function saveState(state: WorkspaceState): Promise<void> {
+export function saveState(state: WorkspaceState): Promise<SaveResult> {
   cacheState(state)
-  saveQueue = saveQueue.catch(() => undefined).then(async () => {
+  saveQueue = saveQueue.catch(() => ({ backup: { ok: false, path: '', updatedAt: null, error: 'Previous save failed' } })).then(async () => {
     const response = await fetch('/api/state', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(state),
     })
     if (!response.ok) throw new Error('Unable to save to the local SQLite database')
+    return await response.json() as SaveResult
   })
   return saveQueue
 }
